@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:elevation="8dp"
+    android:background="@null"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:theme="@style/Theme.Material3.DayNight">
+
+    <View
+        android:id="@+id/rootClickMask"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <RelativeLayout
+        android:id="@+id/rlBarControllerBottom"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        app:layout_constraintEnd_toEndOf="@+id/cvParent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/cvParent">
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cvBar"
+            android:layout_width="match_parent"
+            android:layout_height="22dp"
+            android:layout_alignParentTop="true"
+            android:layout_marginHorizontal="0dp"
+            android:layout_marginTop="-2dp"
+            android:backgroundTint="#ffffff"
+            app:cardElevation="8dp"
+            app:cardCornerRadius="12dp"
+            app:strokeWidth="0dp">
+
+            <View
+                android:id="@+id/cvBarLine"
+                android:layout_width="62dp"
+                android:layout_height="4dp"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_handle_line" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <View
+            android:id="@+id/cvBarClickMask"
+            android:layout_width="match_parent"
+            android:layout_height="30dp"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="-2dp"
+            android:background="@android:color/transparent"
+            app:strokeWidth="0dp" />
+    </RelativeLayout>
+
+    <RelativeLayout
+        android:id="@+id/rlBarControllerSide"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        app:layout_constraintBottom_toTopOf="@+id/rlBarControllerBottom"
+        app:layout_constraintStart_toEndOf="@id/cvParent"
+        app:layout_constraintTop_toTopOf="@+id/cvParent">
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cvBarSide"
+            android:layout_width="4dp"
+            android:layout_height="100dp"
+            android:layout_marginStart="7dp"
+            android:backgroundTint="#ffffff"
+            android:layout_marginVertical="10dp"
+            app:cardElevation="8dp"
+            app:cardCornerRadius="2dp"
+            app:strokeWidth="0dp" />
+
+        <View
+            android:id="@+id/cvBarSideClickMask"
+            android:layout_width="30dp"
+            android:layout_height="100dp"
+            android:background="@android:color/transparent"
+            app:strokeWidth="0dp" />
+    </RelativeLayout>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cvParent"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="@null"
+        android:backgroundTint="@android:color/transparent"
+        android:elevation="8dp"
+        android:paddingBottom="15dp"
+        android:visibility="invisible"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        app:cardBackgroundColor="@android:color/transparent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:strokeColor="@color/transparentOutline"
+        app:strokeWidth="0dp">
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cvBackground"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="0dp"
+            android:layout_marginTop="0dp"
+            android:layout_marginEnd="0dp"
+            android:layout_marginBottom="0dp"
+            android:layout_gravity="center"
+            android:visibility="invisible"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            app:cardBackgroundColor="@android:color/transparent"
+            app:strokeWidth="0dp">
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/background"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:color/transparent"
+                android:clipChildren="false"
+                android:clipToPadding="false">
+
+                <FrameLayout
+                    android:id="@+id/ibSuper"
+                    android:layout_width="0dp"
+                    android:layout_height="18dp"
+                    android:background="@drawable/window_handle_bar"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="4dp"
+                        android:layout_gravity="center"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/three_dot_handle" />
+                </FrameLayout>
+
+                <RelativeLayout
+                    android:id="@+id/v_sizePreviewer"
+                    android:layout_width="200dp"
+                    android:layout_height="300dp"
+                    android:background="@drawable/a_bg"
+                    android:elevation="5dp"
+                    android:visibility="invisible"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/ibSuper" />
+
+                <View
+                    android:id="@+id/viewFullScreenMask"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:background="#80000000"
+                    android:visibility="gone"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+                <TextView
+                    android:id="@+id/tvFullScreenPrompt"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Release to Full Screen"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!--
+      右下角缩放柄：锚定窗口右下角（bottom/end of root）。
+      有效触区 = 手柄 ∩（窗口 − 内容洞）≈ 角块 x[776..930]×y[1197..1288]（154×91px @3.22）；
+      内容区内的那部分仍直通应用（洞语义不变）。旧实现悬在底条上沿（一半落进内容洞、
+      有效区只剩几十像素的角落 L 形）→ 用户按角常常摸不到（真机实证）。
+    -->
+    <ImageButton
+        android:id="@+id/ibRightResize"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/resize_desc"
+        android:elevation="10dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+</androidx.constraintlayout.widget.ConstraintLayout>

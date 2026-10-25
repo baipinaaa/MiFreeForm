@@ -1,0 +1,251 @@
+package com.buildsession.betterYAMF.window.backend
+
+import com.buildsession.betterYAMF.window.api.WindowOperation
+import android.app.ActivityManager
+import android.content.ComponentName
+import android.graphics.Rect
+import com.buildsession.betterYAMF.window.api.CommandStatus
+import com.buildsession.betterYAMF.window.api.ContentAlignment
+import com.buildsession.betterYAMF.window.api.FullscreenHandoffResult
+
+/** Cancels an outstanding command; its callback still completes once with SUPERSEDED. */
+
+/**
+ * Android 内部后端接口：宿主/流程 ↔ 系统侧任务与表面机制。
+ * 本接口允许平台类型，不属于纯 CORE 的事件/场景契约。
+ *
+ * 设计边界（与 `window/core` 的 M1 抽象对应）：
+ * - 核心（window/core）：只认抽象输入 → 抽象命令，零平台依赖；
+ * - 宿主（window/host）：采集具体输入、执行命令、渲染外壳；
+ * - 后端（本接口）：任务级窗口语义——认领/释放（organizer/leash、freeform、
+ *   承载根）、几何（缩放/位置/裁剪/圆角）、焦点让渡、置前、可见性。
+ *
+ * 实现可替换：当前为 `SmoothTaskOrganizer`（TaskOrganizer 悬浮根 + leash）；
+ * 未来迁移 libxposed API 版本或新增别的窗口承载方式时，只替换实现类，
+ * 宿主与流程代码不动。**调用方不得绕过本接口直接操作
+ * WindowOrganizerController / Task / SurfaceControl 等系统细节。**
+ */
+interface WindowBackend {
+    fun existingLogicalViewport(taskId: Int): Rect? = null
+    /** Can retain source pixels while preparing an initially hidden live task. */
+    val supportsRetainedEntry: Boolean get() = false
+    /** Backend can actually adopt after native completion; independent of pixel transport. */
+    val supportsLegacyEntry: Boolean get() = false
+
+    /** Replay cached platform failure/current readiness on the system main thread. Diagnostic
+     * only: no native initialization, IPC, resource mutation or change to advertised capability.
+     * Implementations must rate-limit repeated unavailable queries themselves.
+     */
+    fun reportEntryUnavailable() {}
+
+    /** 注册回灌回调并完成系统侧初始化（幂等）。 */
+    fun initialize(callbacks: WindowBackendCallbacks)
+
+    /**
+     * 打开：把任务认领为平滑窗口（freeform + 承载根 + 变换接管），
+     * 置前并恢复可聚焦。返回是否成功认领。
+     */
+    fun openTask(taskId: Int, initialBounds: Rect? = null, logicalBounds: Rect? = null): Boolean
+
+    /**
+     * 关闭/释放：任务回到全屏并交还系统管理（含表面变换复位与焦点恢复）。
+     * [toFront]：置顶回前（下拉全屏路径）为 true；关闭小窗为 false——
+     * 任务回全屏后沉到显示区栈底（后台、留在最近任务），不抢当前前台，
+     * 既满足"关闭小窗"语义，也避免表面重建黑帧上屏。
+     * 返回是否处理成功。
+     */
+    fun releaseTask(taskId: Int, toFront: Boolean = true): Boolean
+
+    /**
+     * Main-thread animated exit. Caller has committed an opaque full-display bridge and stopped
+     * all task presentation writes. onReleased reports actual ownership loss; completion happens
+     * exactly once. DONE acknowledges the current fullscreen window's requested client redraw
+     * transaction commit and native motion completion; it does not inspect native buffer contents.
+     * Cancellation never restores a released task's old transform. No native objects escape here.
+     */
+    fun handoffFullscreen(
+        taskId: Int, onReleased: () -> Unit, onComplete: (FullscreenHandoffResult) -> Unit
+    ): WindowOperation
+
+    /**
+     * 几何：按物理矩形（屏幕坐标）更新任务表面的缩放/位置/裁剪/圆角。
+     * 实现自行选择承载方式（leash 变换 / 兼容路径），调用方不感知。
+     */
+    fun applyGeometry(taskId: Int, physicalBounds: Rect)
+
+    /**
+     * Prepare the fixed app viewport while invisible. Completion acknowledges WM's requested
+     * resize transaction commit, the current window's drawn state and native motion completion.
+     * This is WM draw readiness, not a native buffer-content witness. A retained
+     * source image may already animate independently. Every outcome is reported once.
+     * Cancelling/releasing the session invalidates its outstanding callbacks before another session
+     * can use the same task identity.
+     */
+    fun preparePresentation(taskId: Int, layout: com.buildsession.betterYAMF.window.api.TaskLayout,
+        onComplete: (CommandStatus) -> Unit): WindowOperation
+
+    /**
+     * Write a complete presentation into the frame transaction without applying it.
+     * Guarantees: uniform content scale, crop filling the visible rectangle, visual-pixel corner
+     * radius, crop alignment and common opacity. Subsequent frames never resize the app's logical
+     * viewport. TOP keeps its top edge fixed while the visual viewport changes aspect.
+     * [visible] also controls the entire content subtree's native touch visibility. It does not
+     * change WM task visibility or release ownership. [focusable] permits focus; false temporarily
+     * suppresses it, true restores only this adoption's suppression using the native lifecycle path.
+     * Visibility shares this transaction. Focus is reconciled only when the requested value changes.
+     * Returns false if these guarantees cannot be supplied; no independent fallback transaction.
+     */
+    fun writePresentationInto(
+        tx: android.view.SurfaceControl.Transaction,
+        taskId: Int,
+        physicalBounds: Rect,
+        cornerRadiusPx: Float,
+        alpha: Float,
+        contentAlignment: ContentAlignment = ContentAlignment.CENTER,
+        visible: Boolean = true,
+        focusable: Boolean = true
+    ): Boolean
+
+    /**
+     * 把该任务的 leash 结算变换**写入调用者提供的事务**（不 apply；语义与 [applyGeometry] 同源）。
+     * 单写者模型（对齐 ColorOS `FlexibleFloatHandleAnimationSpec#applySpringTransform`）：
+     * 宿主把外壳容器的表面写入与内容 leash 的写入合并进**同一个**
+     * [android.view.SurfaceControl.Transaction] 再统一 apply —— 两者在 SurfaceFlinger
+     * **同一帧原子落地**，帧级脱节在结构上不可能发生。
+     * 实现须与 [applyGeometry] 一样更新实现内的几何缓存（重施加/重断言以缓存为真源）。
+     */
+    fun writeGeometryInto(
+        tx: android.view.SurfaceControl.Transaction,
+        taskId: Int,
+        physicalBounds: Rect
+    )
+
+    /**
+     * 为任务创建**壳容器**表面（ColorOS `FlexibleTaskAttachBlurManager` 同型）：与任务 leash
+     * 同层、相对层序紧贴其上 —— 壳的几何从此由容器表面事务承担，WMS 不再参与。返回句柄；
+     * 不可用（任务/leash/父层缺失）返回 null，宿主回落 WMS 窗口路径。
+     */
+    fun createShellContainer(taskId: Int, name: String): android.view.SurfaceControl?
+
+    /** 重断言壳容器层级（回置顶等场景：相对任务 leash 重新压上）。 */
+    fun raiseShellContainer(taskId: Int, container: android.view.SurfaceControl)
+
+    /** 释放壳容器表面（幂等）。 */
+    fun destroyShellContainer(container: android.view.SurfaceControl)
+
+    /**
+     * 静止结算：把窗口静止几何（内容盒，屏幕坐标）交给后端落地。
+     * 实现语义（ColorOS 16 缩放逻辑 / 澎湃OS3 观感）：**首次结算**塑形任务**虚拟尺寸**——
+     * 目标朝向的显示宽 × 窗口宽高比，应用按全屏布局一次、窗口显示其**等比缩小视图**
+     *（UI 元素为全屏版的缩放、内容更密）；**此后同一任务的尺寸变化一律以纯表面缩放落地**
+     *（虚拟尺寸恒定、任务 bounds 不再改动、应用零重排）——无损放大缩小的前提。
+     * 与 [applyGeometry]（动画/mini 的过渡缩放态）成对使用：过渡用前者、静止用本方法。
+     */
+    fun settleGeometry(taskId: Int, bounds: Rect)
+
+    /** 稳态重施加（过渡结束后防系统重置冲掉变换；几何未就绪时 no-op）。 */
+    fun reapplyGeometry(taskId: Int)
+
+    /** 确保任务表面可见（几何未知的首帧兜底）。 */
+    fun ensureTaskVisible(taskId: Int)
+
+    /** 焦点让渡（浮窗语义：可聚焦 / 让焦给下方应用）。 */
+    fun setTaskFocusable(taskId: Int, focusable: Boolean)
+
+    /** 置前（回置顶等）。返回系统调用是否成功。 */
+    fun bringTaskToFront(taskId: Int): Boolean
+
+    /**
+     * 是否已获得系统级置顶身份（承载根 always-on-top）：
+     * 生效时宿主不得再做任何"抢层/回置顶"动作（层级由系统排序规则保证），
+     * 仅保留焦点/几何等语义维护。
+     */
+    fun isAlwaysOnTopActive(): Boolean
+
+    /** 任务是否由本后端接管（窗口语义成立，可施加几何/焦点操作）。 */
+    fun isTaskManaged(taskId: Int): Boolean
+
+    /**
+     * 受管任务集合（承载根 + 已认领子任务）：
+     * 供流程层做跨进程同步（如 Launcher 手势目标豁免）；未接管的实现返回空数组。
+     */
+    fun managedTaskIds(): IntArray
+
+    /**
+     * 以"小窗会话"语义启动应用（**意图级**：freeform 目标、会话承载细节——如 organizer
+     * 承载根绑定——全部由实现负责，根未就绪等降级也在实现内兜底）。
+     * **小窗不改应用 DPI**：不施加任何密度覆盖，应用按默认显示器密度与窗口尺寸自行布局。
+     * [windowId]：发起本次启动的宿主窗口标识（实现路由提示；逻辑层不解释其语义，仅透传）。
+     * 返回是否已发出启动请求；流程层不感知任何系统侧标识与执行细节。
+     */
+    fun launchAppForSession(component: ComponentName, userId: Int, windowId: Int = -1): Boolean
+
+    /**
+     * 该任务是否已处于会话承载根之下（出生即入根 / 已认领）。
+     * 供流程层区分"我方启动/认领的任务"与"外部启动的任务"（外部任务就地认领入根）。
+     */
+    fun isTaskInSessionRoot(taskInfo: ActivityManager.RunningTaskInfo): Boolean
+
+    /** 最近一次落地的任务物理矩形（会话内）；未落地/已释放返回 null。 */
+    fun currentGeometry(taskId: Int): Rect?
+
+    /** 任务消失等场景清理本后端的残留会话状态（几何缓存等）；幂等。 */
+    fun forgetTask(taskId: Int)
+
+    /**
+     * 关闭前主动刷新任务快照（必须在应用仍完整可见时调用）。
+     * 背景：关闭流程会先把任务表面收缩/隐藏，再沉入后台；系统在"后台化"时刻自动抓的
+     * 快照恰好是空帧 → 最近任务卡片"白屏"。实现负责用当前完整画面刷新快照。
+     */
+    fun requestSnapshotRefresh(taskId: Int)
+
+    /** 任务当前窗口模式（WINDOWING_MODE_*）；流程事件分拣用，反射细节由实现收口。 */
+    fun windowingModeOf(taskInfo: ActivityManager.RunningTaskInfo): Int
+
+    /** 该任务是否属于 Home（宿主置顶/让路判定用；实现封装系统判定细节）。 */
+    fun isHomeTask(taskInfo: android.app.TaskInfo): Boolean
+
+    /** 是否正有手指按在屏幕上（用于把回置顶推迟到手势结束）。 */
+    fun isTouchActive(): Boolean
+
+    /** 抑制最近任务手势（Launcher 协作信号；由系统侧接收器转发）。 */
+    fun suppressRecentsGestureFor(durationMs: Long)
+
+    /**
+     * 任务表面是否已"静止"（无系统转场/表面动画在写它的 leash）。
+     * 投放登场"起跑闸"用：Launcher 手势提交触发的系统退场转场读完后我们才可接管，
+     * 否则两边逐帧抢写同一张表面 = "上下横跳"。实现侧能力探测，缺失时恒 true。
+     */
+    fun isTaskSurfaceStable(taskId: Int): Boolean
+
+    /** 最近任务手势抑制截止时间戳（uptimeMillis；0 = 未抑制）。 */
+    fun recentsGestureSuppressUntilMs(): Long
+
+    /** 注入 HOME 键（"从最近任务打开即小窗"后关闭最近任务界面）。 */
+    fun injectHomeKey(): Boolean
+}
+
+/**
+ * 后端 → 宿主的回灌事件。后端须离开 WM/原生调用栈，在主线程校验会话归属后交付。
+ * 释放或替换会话使其排队中的旧事件失效；宿主不得再无归属地二次异步转发。
+ */
+interface WindowBackendCallbacks {
+    /** Global backend resource capability changed, delivered on the host thread. */
+    fun onEntryCapabilitiesChanged() {}
+    /** A platform reset requires the current authoritative scene to be presented again. */
+    fun onPresentationInvalidated(taskId: Int)
+    /** 任务已被接管且承载句柄就绪（宿主可摆位）。 */
+    fun onTaskAdopted(taskId: Int)
+
+    /** Current native ownership was lost (including removal/organizer migration). The backend
+     * retires its resources and reconciles still-owned overrides; the host must not release again.
+     */
+    fun onTaskOwnershipLost(taskId: Int)
+
+    /**
+     * 任务可见性翻转（熄屏/亮屏、锁屏解锁、后台往返等**不产生"置前"事件**的场景）。
+     * 宿主据此显示/收起外壳；缺失本回灌的后果（真机实证）：熄屏后外壳永久停留隐藏态，
+     * 表现为"解锁后小窗装饰消失、resize 手柄不可触达"。
+     */
+    fun onTaskVisibleChanged(taskId: Int, visible: Boolean)
+}
