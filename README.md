@@ -181,6 +181,8 @@ CORE 输出的可交互帧提交后才回报激活成功，随后在 NMS 执行�
 
 本地签名保存在 `.signing/betteryamf.p12`，证书别名为 `betteryamf`。请将密钥与 `keystore.properties` 一起备份，后续构建继续使用同一份密钥。首次从其他签名迁移时，包名相同也不能直接覆盖旧 APK；新签名配置下的 Debug 和 Release 可以互相覆盖，仍须满足 Android 的版本与安装策略。
 
+本仓库的 fork 额外把固定签名 `keystore/betteryamf.p12` 与 `keystore.properties` 一并提交，供 GitHub Actions 免配置构建，详见下文「自动构建」。
+
 完成签名配置后，在仓库根目录执行：
 
 ```bash
@@ -194,12 +196,18 @@ gradle :window-api:test :window-core:test :window-runtime:test \
 gradle :app:lintDebug :app:lintRelease :app:compileDebugAndroidTestKotlin
 ```
 
-仓库 Wrapper 当前指定 Gradle 8.11.1；使用 `./gradlew` 时应留意这一版本差异。`gradle.properties` 中含本地代理配置，构建前按自己的网络环境调整或删除。
+仓库 Wrapper 当前指定 Gradle 8.13；`gradle.properties` 中的本地代理配置已移除，需要代理时请自行在本地补上。
 
 - Debug：`app/build/outputs/apk/debug/app-debug.apk`。
 - Release：`app/build/outputs/apk/release/app-release.apk`，构建时自动使用项目签名。
 - JVM 测试覆盖公共策略、运行时端口、同步/异步完成、取消和旧结果隔离，并检查模块依赖边界。
 - `compileDebugAndroidTestKotlin` 只编译设备测试；实际设备验证另行执行，不能用编译成功替代原生交接验证。
+
+### 自动构建（GitHub Actions）
+
+`.github/workflows/build.yml` 在 push 到 `main` / 提 PR / 手动触发时自动构建：JDK 17 + Android SDK 36，先跑三个 JVM 模块单测，再 `assembleRelease` + `assembleDebug`，APK 作为 artifact 上传；push `main` 会自动创建 `v<提交数>` 的 Release（手动触发时可选择是否发布）。
+
+签名使用仓库内置的 `keystore/betteryamf.p12` + `keystore.properties`，因此每次构建签名一致，可直接覆盖安装。该密钥仅用于自动构建，请勿用于正式分发。
 
 ## 日志与排查
 
